@@ -1,0 +1,12 @@
+
+import json
+
+def load():
+    try: return json.load(open("todo.json"))
+    except: return []
+
+def save(todos):
+    json.dump(todos, open("todo.json","w"), indent=2)
+
+todos = load()
+# same loop as in HR example...
