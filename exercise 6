@@ -1,0 +1,9 @@
+responses = {
+    "how are you": "I'm fine, thanks!",
+    "weather": "I don't have an API.",
+}
+
+while True:
+    msg = input("> ").lower()
+    if msg in ("exit","quit"):
+        breakprint(responses.get(msg, "Sorry, I don't understand."))
