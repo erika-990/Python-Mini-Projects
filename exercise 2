@@ -1,0 +1,12 @@
+mport random
+
+secret = random.randint(1,100)
+while True:
+    guess = int(input("Guess (1-100): "))
+    if guess < secret:
+        print("Higher")
+    elif guess > secret:
+        print("Lower")
+    else:
+        print("You got it!")
+        break
