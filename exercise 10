@@ -1,0 +1,1 @@
+# For a real console snake: use the `curses` module.# Ovo je samo skica – treba implementirati game loop i detekciju tipki.print("Snake game skeleton – implement with curses or Pygame.")
