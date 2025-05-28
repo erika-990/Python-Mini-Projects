@@ -1,0 +1,7 @@
+mport requests
+
+key = "YOUR_API_KEY"
+city = input("City: ")
+url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={key}&units=metric"
+r = requests.get(url).json()
+print(f\"{r['name']}: {r['main']['temp']}°C, {r['weather'][0]['description']}\")
