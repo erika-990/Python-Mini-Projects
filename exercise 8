@@ -1,0 +1,14 @@
+import smtplib
+
+s = smtplib.SMTP("smtp.example.com",587)
+s.starttls()
+s.login("user@example.com","password")
+
+to = input("To: ")
+sub = input("Subject: ")
+body = input("Body: ")
+msg = f"Subject: {sub}\n\n{body}"
+
+s.sendmail("user@example.com", to, msg)
+s.quit()
+print("Sent!")
