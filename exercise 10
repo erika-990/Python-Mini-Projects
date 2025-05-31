@@ -1,1 +1,351 @@
-# For a real console snake: use the `curses` module.# Ovo je samo skica – treba implementirati game loop i detekciju tipki.print("Snake game skeleton – implement with curses or Pygame.")
+#!/usr/bin/env python3
+"""
+expense_tracker.py
+
+A simple console‐based Expense Tracker using SQLite. Features:
+  - Create/display/edit/delete expense records (date, amount, category, note)
+  - View all expenses, filter by date range or category
+  - Show monthly spending summary
+  - Show category breakdown
+"""
+
+import sqlite3
+import os
+import sys
+from datetime import datetime
+
+
+DB_FILENAME = "expenses.db"
+
+
+def initialize_database(db_filename: str) -> sqlite3.Connection:
+    """
+    Connect to the SQLite database (creating it if necessary) and ensure
+    the 'expenses' table exists.
+    """
+    conn = sqlite3.connect(db_filename)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS expenses (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            date     TEXT NOT NULL,
+            amount   REAL NOT NULL,
+            category TEXT NOT NULL,
+            note     TEXT
+        );
+        """
+    )
+    conn.commit()
+    return conn
+
+
+def parse_date(input_str: str) -> str:
+    """
+    Validate that input_str is a date in YYYY-MM-DD format.
+    Returns the same string if valid, or raises ValueError if invalid.
+    """
+    try:
+        # This will raise ValueError if format is wrong
+        datetime.strptime(input_str, "%Y-%m-%d")
+        return input_str
+    except ValueError:
+        raise ValueError("Date must be in YYYY-MM-DD format.")
+
+
+def prompt_date(prompt_text: str = "Enter date (YYYY-MM-DD): ") -> str:
+    """
+    Prompt the user until they enter a valid date string (YYYY-MM-DD).
+    """
+    while True:
+        user_input = input(prompt_text).strip()
+        try:
+            return parse_date(user_input)
+        except ValueError as e:
+            print(f"  ❗ {e}")
+
+
+def prompt_amount(prompt_text: str = "Enter amount (e.g. 12.50): ") -> float:
+    """
+    Prompt the user until they enter a valid float for the amount.
+    """
+    while True:
+        user_input = input(prompt_text).strip()
+        try:
+            value = float(user_input)
+            return value
+        except ValueError:
+            print("  ❗ Amount must be a number (e.g. 12.50).")
+
+
+def prompt_nonempty_string(prompt_text: str) -> str:
+    """
+    Prompt the user until they enter a non‐empty string.
+    """
+    while True:
+        s = input(prompt_text).strip()
+        if s:
+            return s
+        else:
+            print("  ❗ Input cannot be empty.")
+
+
+def add_expense(conn: sqlite3.Connection) -> None:
+    """
+    Prompt the user for expense fields and insert a new record into the DB.
+    """
+    print("\n--- Add New Expense ---")
+    date_str = prompt_date()
+    amount = prompt_amount()
+    category = prompt_nonempty_string("Enter category (e.g. Food, Transport): ")
+    note = input("Enter optional note (press Enter to skip): ").strip()
+
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO expenses (date, amount, category, note)
+        VALUES (?, ?, ?, ?);
+        """,
+        (date_str, amount, category, note if note else None),
+    )
+    conn.commit()
+    print("✅ Expense added.\n")
+
+
+def view_expenses(conn: sqlite3.Connection) -> None:
+    """
+    Let the user choose to view all expenses or filter by date range/category,
+    then display matching records in a tabular format.
+    """
+    print("\n--- View Expenses ---")
+    print("1) View all expenses")
+    print("2) View by date range")
+    print("3) View by category")
+    choice = input("Choose an option [1-3]: ").strip()
+
+    cursor = conn.cursor()
+    if choice == "1":
+        cursor.execute("SELECT id, date, amount, category, note FROM expenses ORDER BY date;")
+        rows = cursor.fetchall()
+    elif choice == "2":
+        start_date = prompt_date("Enter start date (YYYY-MM-DD): ")
+        end_date = prompt_date("Enter end date   (YYYY-MM-DD): ")
+        cursor.execute(
+            """
+            SELECT id, date, amount, category, note
+            FROM expenses
+            WHERE date BETWEEN ? AND ?
+            ORDER BY date;
+            """,
+            (start_date, end_date),
+        )
+        rows = cursor.fetchall()
+    elif choice == "3":
+        category = prompt_nonempty_string("Enter category to filter by: ")
+        cursor.execute(
+            """
+            SELECT id, date, amount, category, note
+            FROM expenses
+            WHERE category = ?
+            ORDER BY date;
+            """,
+            (category,),
+        )
+        rows = cursor.fetchall()
+    else:
+        print("⚠️  Invalid choice. Returning to main menu.\n")
+        return
+
+    if not rows:
+        print("No matching expenses found.\n")
+        return
+
+    # Print header
+    print(f"\n{'ID':<4} {'Date':<12} {'Amount':>10}  {'Category':<15}  {'Note'}")
+    print("-" * 60)
+    for r in rows:
+        rec_id, date_str, amount, category, note = r
+        note_display = note if note else ""
+        print(f"{rec_id:<4} {date_str:<12} {amount:>10.2f}  {category:<15}  {note_display}")
+    print()
+
+
+def show_summary(conn: sqlite3.Connection) -> None:
+    """
+    Generate and display:
+      1) Monthly spending totals (YYYY-MM -> sum of amounts)
+      2) Overall spending by category
+    """
+    print("\n--- Spending Summary ---")
+    cursor = conn.cursor()
+
+    # Monthly totals
+    print("\nMonthly Totals:")
+    cursor.execute(
+        """
+        SELECT 
+            strftime('%Y-%m', date) AS month, 
+            ROUND(SUM(amount), 2) 
+        FROM expenses 
+        GROUP BY month 
+        ORDER BY month;
+        """
+    )
+    rows = cursor.fetchall()
+    if rows:
+        print(f"{'Month':<8} {'Total Spent':>12}")
+        print("-" * 22)
+        for (month, total) in rows:
+            print(f"{month:<8} {total:>12.2f}")
+    else:
+        print("  No expenses recorded.\n")
+
+    # Category breakdown
+    print("\nCategory Breakdown:")
+    cursor.execute(
+        """
+        SELECT 
+            category, 
+            ROUND(SUM(amount), 2) 
+        FROM expenses 
+        GROUP BY category 
+        ORDER BY SUM(amount) DESC;
+        """
+    )
+    rows = cursor.fetchall()
+    if rows:
+        print(f"{'Category':<15} {'Total Spent':>12}")
+        print("-" * 28)
+        for (category, total) in rows:
+            print(f"{category:<15} {total:>12.2f}")
+    else:
+        print("  No expenses recorded.\n")
+    print()
+
+
+def edit_or_delete_expense(conn: sqlite3.Connection) -> None:
+    """
+    Prompt user for an expense ID, then let them choose to edit or delete it.
+    """
+    print("\n--- Edit/Delete Expense ---")
+    try:
+        rec_id = int(input("Enter the ID of the expense to edit/delete: ").strip())
+    except ValueError:
+        print("⚠️  Invalid ID (must be a number). Returning to main menu.\n")
+        return
+
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, date, amount, category, note FROM expenses WHERE id = ?;", (rec_id,))
+    row = cursor.fetchone()
+    if not row:
+        print(f"⚠️  No expense found with ID = {rec_id}.\n")
+        return
+
+    print("\nSelected Record:")
+    print(f"  ID:       {row[0]}")
+    print(f"  Date:     {row[1]}")
+    print(f"  Amount:   {row[2]:.2f}")
+    print(f"  Category: {row[3]}")
+    print(f"  Note:     {row[4] if row[4] else ''}")
+
+    print("\n1) Edit this expense")
+    print("2) Delete this expense")
+    choice = input("Choose an option [1-2]: ").strip()
+
+    if choice == "2":
+        confirm = input("Are you sure you want to delete this record? (y/N): ").strip().lower()
+        if confirm == "y":
+            cursor.execute("DELETE FROM expenses WHERE id = ?;", (rec_id,))
+            conn.commit()
+            print("✅ Expense deleted.\n")
+        else:
+            print("✅ Deletion canceled.\n")
+        return
+
+    elif choice == "1":
+        # Editing fields: re‐prompt with existing defaults
+        print("\nLeave a field blank to keep the current value.\n")
+
+        new_date = input(f"Date [{row[1]}]: ").strip()
+        if new_date:
+            try:
+                new_date = parse_date(new_date)
+            except ValueError as e:
+                print(f"  ❗ {e}  — keeping previous date ({row[1]}).")
+                new_date = row[1]
+        else:
+            new_date = row[1]
+
+        amt_input = input(f"Amount [{row[2]:.2f}]: ").strip()
+        if amt_input:
+            try:
+                new_amount = float(amt_input)
+            except ValueError:
+                print(f"  ❗ Invalid number. Keeping previous amount ({row[2]:.2f}).")
+                new_amount = row[2]
+        else:
+            new_amount = row[2]
+
+        new_category = input(f"Category [{row[3]}]: ").strip()
+        if not new_category:
+            new_category = row[3]
+
+        new_note = input(f"Note [{row[4] if row[4] else ''}]: ").strip()
+        if not new_note:
+            new_note = row[4]
+
+        cursor.execute(
+            """
+            UPDATE expenses 
+            SET date = ?, amount = ?, category = ?, note = ?
+            WHERE id = ?;
+            """,
+            (new_date, new_amount, new_category, new_note, rec_id),
+        )
+        conn.commit()
+        print("✅ Expense updated.\n")
+        return
+
+    else:
+        print("⚠️  Invalid choice. Returning to main menu.\n")
+        return
+
+
+def print_menu() -> None:
+    """
+    Display the main menu options.
+    """
+    print("====== Expense Tracker ======")
+    print("1) Add new expense")
+    print("2) View expenses")
+    print("3) Show spending summary")
+    print("4) Edit/Delete an expense")
+    print("5) Exit")
+
+
+def main():
+    # Ensure the DB file and table exist
+    conn = initialize_database(DB_FILENAME)
+
+    while True:
+        print_menu()
+        choice = input("Select an option [1-5]: ").strip()
+
+        if choice == "1":
+            add_expense(conn)
+        elif choice == "2":
+            view_expenses(conn)
+        elif choice == "3":
+            show_summary(conn)
+        elif choice == "4":
+            edit_or_delete_expense(conn)
+        elif choice == "5":
+            print("\nGoodbye!")
+            conn.close()
+            sys.exit(0)
+        else:
+            print("⚠️  Invalid choice. Please enter a number from 1 to 5.\n")
+
+
+if __name__ == "__main__":
+    main()
